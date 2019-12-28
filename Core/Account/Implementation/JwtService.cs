@@ -32,13 +32,16 @@ namespace Core.Account.Implementation
             if (model?.Subject == null || !model.Subject.Claims.Any())
                 throw new Exception("Arguments to create token are not valid.");
 
+            var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(SecretKey));
+            var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
+
             SecurityTokenDescriptor securityTokenDescriptor = new SecurityTokenDescriptor
             {
                 Issuer = model.Issuer,
                 Audience = model.Audience,
                 Subject = model.Subject,
                 Expires = DateTime.UtcNow.AddMinutes(Convert.ToInt32(model.ExpireMinutes)),
-                SigningCredentials = new SigningCredentials(GetSymmetricSecurityKey(), model.SecurityAlgorithm)
+                SigningCredentials = credentials
             };
 
             JwtSecurityTokenHandler jwtSecurityTokenHandler = new JwtSecurityTokenHandler();
