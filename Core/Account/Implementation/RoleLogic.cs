@@ -1,13 +1,17 @@
 ﻿using Core.Account.Interfaces;
 using Core.Logic;
+using Data.DTO;
 using Data.Entities;
 using Data.Repositories.Interfaces;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace Core.Account.Implementation
 {
@@ -22,113 +26,101 @@ namespace Core.Account.Implementation
             _roleManager = roleManager;
         }
 
-        public void AddUserClaims(int countryId, Dictionary<string, string> associatedClaims,
-            ApplicationUser appUser)
+        public async Task AddUserClaims(Dictionary<string, string> associatedClaims, ApplicationUser appUser)
         {
-            if (!associatedClaims.Any()) return;
+            if (associatedClaims == null || !associatedClaims.Any()) return;
             foreach (var claim in associatedClaims)
             {
-                var userClaim = _claimRepository.Table
-                    .SingleOrDefault(x => x.CountryId == countryId &&
-                                          appUser.Id == x.UserId && x.ClaimType == claim.Key &&
-                                          x.ClaimValue == claim.Value);
+                var userClaim = await _repository.ApplicationUserClaim
+                                        .FindByCondition(x => appUser.Id == x.UserId && x.ClaimType == claim.Key && x.ClaimValue == claim.Value).SingleOrDefaultAsync();
+
                 if (userClaim != null) continue;
 
                 userClaim = new ApplicationUserClaim
                 {
                     ClaimType = claim.Key,
                     ClaimValue = claim.Value,
-                    CountryId = countryId,
                     UserId = appUser.Id
                 };
-                _claimRepository.Insert(userClaim);
-                _claimRepository.SaveChanges();
+                _repository.ApplicationUserClaim.CreateUserClaim(userClaim);
+                await _repository.SaveAsync();
             }
         }
-        public async Task AddToRoleAndClaims(CallerUserData callerData, RoleUpdateData model)
+        public async Task AddToRoleAndClaims(UserDto callerData, RoleUpdateDto model)
         {
             var roles = model.Roles.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).ToArray();
+
             if (roles.Select(x => x.ToLower()).Contains("superadmin"))
-                throw new SureGroupException("Cannot Create SuperUser at this time");
-            var appUser = await FindByIdAsync(model.UserId);
+                throw new Exception("Cannot Create SuperUser at this time");
+
+            var appUser = await FindByIdAsync(model.UserId.ToString());
+
             if (appUser == null)
-                throw new SureGroupException("User not found");
-            await AddUserToRoles(callerData.CountryId, roles, appUser);
-            AddUserClaims(callerData.CountryId, model.AssociatedClaims, appUser);
-            var description = $"Added User to Role(s) and Claim(s) - Email:{appUser.Email}, Role: {string.Join(",", model.Roles)} Claims:{string.Join(",", model.AssociatedClaims.Select(x => x.Value))}";
-            _auditLogic.LogAction(callerData, "Added User to Role(s) and Claim(s)", description, OperationTypeEnum.Other);
+                throw new Exception("User not found");
+
+            await AddUserToRoles(roles, appUser);
+
+            await AddUserClaims(model.AssociatedClaims, appUser);
         }
-        public async Task<ApplicationUser> RemoveRoleAndClaims(CallerUserData callerData, RoleUpdateData model)
+        public async Task<ApplicationUser> RemoveRoleAndClaims(RoleUpdateDto model)
         {
             var roles = model.Roles.Where(x => !string.IsNullOrWhiteSpace(x)).ToArray();
-            var appUser = await FindByIdAsync(model.UserId);
+            var appUser = await FindByIdAsync(model.UserId.ToString());
             if (appUser == null)
-                throw new SureGroupException("User not found");
+                throw new Exception("User not found");
             foreach (var role in roles)
             {
                 var appRole = await GetApplicationRole(role);
-                var appUserRole = appUser.Roles.SingleOrDefault(x => x.CountryId == callerData.CountryId && x.RoleId == appRole.Id);
+                var appUserRole = await _repository.ApplicationUserRole.FindByCondition(x => x.RoleId == appRole.Id).SingleOrDefaultAsync();
                 if (appUserRole != null)
                 {
-                    _roleRepository.Delete(appUserRole);
+                    _repository.ApplicationUserRole.Delete(appUserRole);
                 }
             }
-            RemoveUserClaims(callerData, model.AssociatedClaims, appUser);
-            var hasRoles = _roleRepository.Table.Any(x => x.UserId == appUser.Id && x.CountryId == callerData.CountryId);
-            var hasClaims = _claimRepository.Table.Any(x => x.CountryId == callerData.CountryId && x.UserId == appUser.Id);
-            if (!hasClaims && !hasRoles)
-            {
-                var access = _accessRepository.Table.SingleOrDefault(x =>
-                    x.UserId == appUser.Id && x.CountryId == callerData.CountryId);
-                if (access != null)
-                    _accessRepository.Delete(access);
-            }
-            var description = $"Removed User from Role(s) and Claim(s) - Email:{appUser.Email}, Role: {string.Join(",", model.Roles)} Claims:{string.Join(",", model.AssociatedClaims.Select(x => x.Value))}";
-            _auditLogic.LogAction(callerData, "Removed User from Role(s) and Claim(s)", description, OperationTypeEnum.Other);
+
+            await RemoveUserClaims(model.AssociatedClaims, appUser);
+
             return appUser;
         }
-        private void RemoveUserClaims(CallerUserData callerData, Dictionary<string, string> associatedClaims,
-            ApplicationUser appUser)
+        private async Task RemoveUserClaims(Dictionary<string, string> associatedClaims, ApplicationUser appUser)
         {
             if (associatedClaims.Any())
             {
                 foreach (var claim in associatedClaims)
                 {
-                    var userClaim = _claimRepository.Table
-                        .SingleOrDefault(x => x.CountryId == callerData.CountryId &&
-                                              appUser.Id == x.UserId && x.ClaimType == claim.Key &&
-                                              x.ClaimValue == claim.Value);
-                    _claimRepository.Delete(userClaim);
+                    var userClaim = await _repository.ApplicationUserClaim.FindByCondition(x => appUser.Id == x.UserId && x.ClaimType == claim.Key && x.ClaimValue == claim.Value).SingleOrDefaultAsync();
+
+                    _repository.ApplicationUserClaim.Delete(userClaim);
                 }
             }
         }
-        public async Task AddUserToRoles(int countryId, string[] roles, ApplicationUser user)
+        public async Task AddUserToRoles(string[] roles, ApplicationUser user)
         {
             foreach (var role in roles)
             {
-                await AddToRole(countryId, user.Id, role);
+                await AddToRole(user.Id, role);
             }
         }
-        public async Task AddToRole(int countryId, Guid userId, string role)
+        public async Task AddToRole(Guid userId, string role)
         {
-            var appUser = _repository.Table.Include(x => x.Roles).SingleOrDefault(x => x.Id == userId);
+            var appUser = await _repository.ApplicationUser.GetUserByIdAsync(userId);
             if (appUser == null)
-                throw new SureGroupException("User not found.");
-            await AddToRole(countryId, role, appUser);
+                throw new Exception("User not found.");
+            await AddToRole(role, appUser);
         }
-        public async Task AddToRole(int countryId, string role, ApplicationUser appUser)
+        public async Task AddToRole(string role, ApplicationUser appUser)
         {
             var appRole = await GetApplicationRole(role);
-            var appUserRole = appUser.Roles.SingleOrDefault(x => x.UserId == appUser.Id && x.CountryId == countryId && x.RoleId == appRole.Id);
+            var appUserRole = await _repository.ApplicationUserRole.FindByCondition(x => x.UserId == appUser.Id && x.RoleId == appRole.Id).SingleOrDefaultAsync();
             if (appUserRole == null)
             {
-                appUser.Roles.Add(new ApplicationUserRole
+                appUserRole = new ApplicationUserRole
                 {
                     RoleId = appRole.Id,
-                    UserId = appUser.Id,
-                    CountryId = countryId,
-                });
-                _repository.SaveChanges();
+                    UserId = appUser.Id
+                };
+
+                await _repository.SaveAsync();
             }
         }
         protected async Task<ApplicationRole> GetApplicationRole(string role)

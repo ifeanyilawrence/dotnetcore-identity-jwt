@@ -15,5 +15,8 @@ namespace Data.DTO
         public string LastName { get; set; }
         public string Phone { get; set; }
         public string Avatar { get; set; }
+        public bool IsEmailVerified { get; set; }
+        public string[] Roles { get; set; }
+        public Dictionary<string, string> AssociatedClaims { get; set; }
     }
 }

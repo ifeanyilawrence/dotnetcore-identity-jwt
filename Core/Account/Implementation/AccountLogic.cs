@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -18,17 +19,54 @@ namespace Core.Account.Implementation
     public class AccountLogic : ApplicationUserManager, IAccountLogic
     {
         private readonly IRepositoryWrapper _repository;
-        public AccountLogic(IUserStore<ApplicationUser> appUser, IOptions<IdentityOptions> options, IPasswordHasher<ApplicationUser> passwordHasher, IEnumerable<IUserValidator<ApplicationUser>> userValidators, IEnumerable<IPasswordValidator<ApplicationUser>> passwordValidators, ILookupNormalizer lookupNormalizer, IdentityErrorDescriber identityErrorDescriber, IServiceProvider serviceProvider, ILogger<UserManager<ApplicationUser>> logger, IRepositoryWrapper repository) : base(appUser, options, passwordHasher, userValidators, passwordValidators, lookupNormalizer, identityErrorDescriber, serviceProvider, logger, repository)
+        private readonly IRoleLogic _roleLogic;
+        public AccountLogic(IUserStore<ApplicationUser> appUser, IOptions<IdentityOptions> options, IPasswordHasher<ApplicationUser> passwordHasher, IEnumerable<IUserValidator<ApplicationUser>> userValidators, IEnumerable<IPasswordValidator<ApplicationUser>> passwordValidators, ILookupNormalizer lookupNormalizer, IdentityErrorDescriber identityErrorDescriber, IServiceProvider serviceProvider, ILogger<UserManager<ApplicationUser>> logger, IRepositoryWrapper repository, IRoleLogic roleLogic) : base(appUser, options, passwordHasher, userValidators, passwordValidators, lookupNormalizer, identityErrorDescriber, serviceProvider, logger, repository)
         {
             _repository = repository;
+            _roleLogic = roleLogic;
         }
 
         public async Task<UserDto> RegisterUser(UserDto data)
         {
-            ValidateRequestData(data);
-            await CheckUserExistBeforeCreate(data);
-            var appUser = await CreateApplicationUser(data, countryConfig);
-            return await CompleteRegisterUser(data, appUser, countryConfig);
+            try
+            {
+                ValidateRequestData(data);
+                await CheckUserExistBeforeCreate(data);
+                var appUser = await CreateApplicationUser(data);
+                return await CompleteRegisterUser(data, appUser);
+            }
+            catch (Exception e)
+            {
+                throw e;
+            }
+        }
+        private async Task<UserDto> CompleteRegisterUser(UserDto data, ApplicationUser appUser)
+        {
+            try
+            {
+                if (!appUser.EmailConfirmed)
+                {
+                    var token = await GenerateEmailConfirmationTokenAsync(appUser);
+                    var registrationToken = WebUtility.UrlEncode(token);
+                    //_emailHelper.SendRegistrationMail(countryConfig, data, registrationToken);
+                }
+
+                await CompleteCreateApplicationUser(data, appUser);
+
+                await _repository.SaveAsync();
+
+                return MapUserInfoData(appUser);
+            }
+            catch (Exception e)
+            {
+                throw e;
+            }
+        }
+        private async Task CompleteCreateApplicationUser(UserDto data, ApplicationUser appUser)
+        {
+            await _roleLogic.AddUserToRoles(data.Roles, appUser);
+
+            await _roleLogic.AddUserClaims(data.AssociatedClaims, appUser);
         }
         private void ValidateRequestData(UserDto data)
         {

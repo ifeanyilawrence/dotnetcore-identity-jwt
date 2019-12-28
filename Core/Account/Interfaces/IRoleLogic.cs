@@ -10,7 +10,7 @@ namespace Core.Account.Interfaces
     public interface IRoleLogic
     {
         Task AddToRoleAndClaims(UserDto userDto, RoleUpdateDto model);
-        Task<ApplicationUser> RemoveRoleAndClaims(UserDto userDto, RoleUpdateDto model);
+        Task<ApplicationUser> RemoveRoleAndClaims(RoleUpdateDto model);
 
         Task AddUserToRoles(string[] roles, ApplicationUser user);
 
