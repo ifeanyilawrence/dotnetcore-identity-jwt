@@ -9,5 +9,6 @@ namespace Core.Account.Interfaces
     public interface IAccountLogic
     {
         Task<UserDto> RegisterUser(UserDto userData);
+        Task<UserDto> GetToken(UserDto userData);
     }
 }

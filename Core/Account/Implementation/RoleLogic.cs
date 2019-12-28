@@ -120,6 +120,8 @@ namespace Core.Account.Implementation
                     UserId = appUser.Id
                 };
 
+                _repository.ApplicationUserRole.Create(appUserRole);
+
                 await _repository.SaveAsync();
             }
         }

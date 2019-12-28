@@ -34,5 +34,19 @@ namespace Api.Controllers
                 return BadRequest(e);
             }
         }
+        [HttpPost("GetToken")]
+        public async Task<IActionResult> GetToken([FromBody]UserDto userData)
+        {
+            try
+            {
+                var response = await _accountLogic.GetToken(userData);
+
+                return Ok(response);
+            }
+            catch (Exception e)
+            {
+                return BadRequest(e);
+            }
+        }
     }
 }

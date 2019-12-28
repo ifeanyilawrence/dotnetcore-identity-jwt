@@ -18,5 +18,6 @@ namespace Data.DTO
         public bool IsEmailVerified { get; set; }
         public string[] Roles { get; set; }
         public Dictionary<string, string> AssociatedClaims { get; set; }
+        public string Token { get; set; }
     }
 }
